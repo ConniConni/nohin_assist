@@ -95,12 +95,12 @@ def _check_duplicates(records: list[Record]) -> list[Issue]:
 def _check_pairs_and_rounds(records: list[Record]) -> list[Issue]:
     out = []
     pairs: dict[tuple, dict[str, list[Record]]] = defaultdict(lambda: {KIND_RV: [], KIND_CL: []})
-    rounds: dict[tuple, set[int]] = defaultdict(set)
+    rounds: dict[tuple, list[Record]] = defaultdict(list)
     for r in records:
         if r.kind in (KIND_RV, KIND_CL) and r.side and r.round:
             pairs[(r.project, r.process, r.side, r.round)][r.kind].append(r)
             if r.kind == KIND_RV:
-                rounds[(r.project, r.process, r.side)].add(r.round)
+                rounds[(r.project, r.process, r.side)].append(r)
     for (proj, code, side, rnd), d in sorted(pairs.items()):
         label = f"工程 {code} {side} {rnd}回目"
         if d[KIND_RV] and not d[KIND_CL]:
@@ -112,10 +112,12 @@ def _check_pairs_and_rounds(records: list[Record]) -> list[Issue]:
                              f"{label}: チェックリストはあるがレビュー記録表がありません",
                              tuple(r.id for r in d[KIND_CL])))
     for (proj, code, side), rs in sorted(rounds.items()):
-        missing = [n for n in range(1, max(rs) + 1) if n not in rs]
+        have = {r.round for r in rs}
+        missing = [n for n in range(1, max(have) + 1) if n not in have]
         if missing:
             out.append(Issue(LEVEL_WARN, proj, "回数の抜け",
-                             f"工程 {code} {side}: レビュー記録表の {', '.join(f'{n}回目' for n in missing)} がありません"))
+                             f"工程 {code} {side}: レビュー記録表の {', '.join(f'{n}回目' for n in missing)} がありません",
+                             tuple(r.id for r in rs)))
     return out
 
 
