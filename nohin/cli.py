@@ -2,12 +2,16 @@
 
     python -m nohin collect [-d delivery.toml] [-c config.toml] [--check-names] [--new]
     python -m nohin report  [-d delivery.toml] [-c config.toml]
+    python -m nohin deliver [-d delivery.toml] [-c config.toml] [--mode list|check|overwrite]
+    python -m nohin restore [-d delivery.toml] [-c config.toml] No [No ...]
+    python -m nohin inspect <レビュー記録表.xlsx>
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -15,12 +19,13 @@ from openpyxl.utils import get_column_letter
 
 from . import __version__
 from .checks import check_all, sort_issues
-from .classify import build_record, enrich
+from .classify import build_record
 from .config import ConfigError, find_config, find_config_for_inspect, load_config, load_delivery
+from .deliver import MODES, run_deliver, run_restore
+from .fileops import STATS, reset_stats
 from .manifest import ManifestError, backup_manifest, ensure_not_open, read_manifest, save_manifest
 from .model import KIND_CL, KIND_DOC, KIND_OTHER, KIND_RV, LEVEL_INFO, Issue, Record
-from .progress import update_review_progress
-from .report import apply_confirmations, apply_row_warnings, summarize
+from .refresh import refresh as _refresh
 from .review_table import ROW_NOT_REQUIRED, list_drawings, range_label, read_review_table
 from .scan import scan_project
 
@@ -54,6 +59,8 @@ def _print_issues(issues: list[Issue]) -> None:
 
 
 def cmd_collect(args) -> int:
+    started = time.monotonic()
+    reset_stats()
     cfg, delivery = _load(args)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     scanned_records: list[Record] = []
@@ -91,18 +98,14 @@ def cmd_collect(args) -> int:
     print(f"管理表を保存しました: {path}")
     print("\n".join(summary.lines))
     _print_issues(issues)
+    _print_stats(started)
     return 0
 
 
-def _refresh(records: list[Record], cfg, delivery, extra: list[Issue], confirmed: dict[str, str], now: str):
-    """記録表の読み取り → 整合チェック → 確認済の引き継ぎ → 集計。collect と report で共通。"""
-    for r in records:
-        enrich(r, cfg)
-    issues = extra + update_review_progress(records, cfg, now) + check_all(records, cfg, delivery)
-    issues = sort_issues(issues)
-    apply_confirmations(issues, confirmed)
-    apply_row_warnings(records, issues)
-    return summarize(delivery.name, records, issues), issues
+def _print_stats(started: float) -> None:
+    if STATS.files:
+        print(f"処理時間: {time.monotonic() - started:.1f} 秒（ハッシュを計算したファイル: {STATS.files} 件・"
+              f"合計 {STATS.bytes / 1024 / 1024:.1f} MB）")
 
 
 def _print_check_names(records: list[Record], scan_issues: list[Issue], cfg, delivery) -> int:
@@ -122,6 +125,8 @@ def _print_check_names(records: list[Record], scan_issues: list[Issue], cfg, del
 
 
 def cmd_report(args) -> int:
+    started = time.monotonic()
+    reset_stats()
     cfg, delivery = _load(args)
     path = delivery.manifest_path
     records, confirmed = read_manifest(path)
@@ -131,7 +136,18 @@ def cmd_report(args) -> int:
     print(f"管理表のサマリー・警告を更新しました: {path}")
     print("\n".join(summary.lines))
     _print_issues(issues)
+    _print_stats(started)
     return 0
+
+
+def cmd_deliver(args) -> int:
+    cfg, delivery = _load(args)
+    return run_deliver(cfg, delivery, args.mode)
+
+
+def cmd_restore(args) -> int:
+    cfg, delivery = _load(args)
+    return run_restore(cfg, delivery, args.nos)
 
 
 def cmd_inspect(args) -> int:
@@ -202,6 +218,17 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report", help="管理表を集計し、サマリーと警告を更新する")
     common(p)
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("deliver", help="前の工程が済んだ行を納品先にコピーする（既定は一覧を出すだけ）")
+    common(p)
+    p.add_argument("--mode", choices=MODES, default="list",
+                   help="list: 一覧のみ（既定）/ check: 同名で内容の違うファイルがあれば止める / overwrite: 退避してから上書き")
+    p.set_defaults(func=cmd_deliver)
+
+    p = sub.add_parser("restore", help="納品コピーで上書きした納品先のファイルを、バックアップから戻す")
+    common(p)
+    p.add_argument("nos", nargs="+", type=int, metavar="No", help="管理表の No（複数可）")
+    p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("inspect", help="レビュー記録表1つの読み取り結果を表示する（読み取り専用）")
     p.add_argument("file", help="レビュー記録表（.xlsx）")

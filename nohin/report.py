@@ -44,7 +44,8 @@ def is_row_done(r: Record) -> bool:
     return all(getattr(r, k) in (ST_DONE, ST_NA) for k in STATUS_KEYS)
 
 
-def summarize(delivery_name: str, records: list[Record], issues: list[Issue]) -> Summary:
+def summarize(delivery_name: str, records: list[Record], issues: list[Issue],
+              backups: tuple[int, int] = (0, 0)) -> Summary:
     active = [r for r in records if r.target in (TARGET_AUTO, TARGET_MANUAL)]
     checking = [r for r in records if r.target == TARGET_CHECK]
     excluded = [r for r in records if r.target == TARGET_EXCLUDE]
@@ -83,6 +84,7 @@ def summarize(delivery_name: str, records: list[Record], issues: list[Issue]) ->
         ["エラー（未確認）", lvl.get(LEVEL_ERROR, 0)],
         ["警告（未確認）", lvl.get(LEVEL_WARN, 0)],
         ["情報", lvl.get(LEVEL_INFO, 0)],
+        ["バックアップ（_backup）", f"{backups[0]} 件", f"{backups[1] / 1024 / 1024:.1f} MB"],
         [],
         ["■ 工程別ステータス", ST_DONE, ST_TODO, ST_NG, ST_NA],
     ]

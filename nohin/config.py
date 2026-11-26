@@ -75,6 +75,7 @@ class Config:
     approver: str = ""     # 社内レビュー記録表の承認者の既定値
     company_name: str = ""
     review_table: ReviewTableConfig = field(default_factory=ReviewTableConfig)
+    verify_hash_on_report: bool = True  # report のたびに納品先・原本のハッシュを照合するか
 
     def process_by_rv_name(self, name: str) -> Process | None:
         return next((p for p in self.processes.values() if p.rv_name == name), None)
@@ -96,6 +97,7 @@ class Delivery:
     name: str
     work_dir: Path
     projects: tuple[Project, ...] = field(default_factory=tuple)
+    dest_root: Path | None = None  # 納品先のルート（なければ納品先のチェックと deliver は行わない）
 
     @property
     def manifest_path(self) -> Path:
@@ -209,6 +211,10 @@ def load_config(path: str | Path) -> Config:
         if not rt_kwargs.get(key, getattr(defaults, key)):
             raise ConfigError(f"review_table.{key} が空です")
 
+    verify = raw.get("deliver", {}).get("verify_hash_on_report", True)
+    if not isinstance(verify, bool):
+        raise ConfigError("deliver.verify_hash_on_report は true か false で書いてください")
+
     return Config(
         path=path,
         layout=layout,
@@ -222,6 +228,7 @@ def load_config(path: str | Path) -> Config:
         approver=stamp.get("approver", ""),
         company_name=stamp.get("company_name", ""),
         review_table=ReviewTableConfig(**rt_kwargs),
+        verify_hash_on_report=verify,
     )
 
 
@@ -237,6 +244,10 @@ def load_delivery(path: str | Path, cfg: Config | None = None) -> Delivery:
     dv = _require(raw, "delivery", "delivery")
     name = _require(dv, "name", "delivery")
     work_dir = resolve(dv.get("work_dir", "work"))
+    dest_raw = dv.get("dest_root", "")
+    if not isinstance(dest_raw, str):
+        raise ConfigError("delivery.dest_root はパスの文字列で書いてください")
+    dest_root = resolve(dest_raw) if dest_raw.strip() else None
 
     projects = []
     names = set()
@@ -254,7 +265,7 @@ def load_delivery(path: str | Path, cfg: Config | None = None) -> Delivery:
         projects.append(Project(name=pname, root=resolve(_require(p, "root", where)), processes=procs))
     if not projects:
         raise ConfigError("delivery.toml に [[projects]] が1つもありません")
-    return Delivery(path=path, name=name, work_dir=work_dir, projects=tuple(projects))
+    return Delivery(path=path, name=name, work_dir=work_dir, projects=tuple(projects), dest_root=dest_root)
 
 
 TOOL_DIR = Path(__file__).resolve().parent.parent
