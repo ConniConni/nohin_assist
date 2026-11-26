@@ -15,14 +15,32 @@
 ## 導入・試行手順
 
 ダミーデータで動作を確認してから、実際の案件で試す。手順 1〜4 は初回のみ。
-コマンドは、ツールを展開したフォルダでコマンドプロンプトを開いて実行する。
+コマンドは、ツールを取り出したフォルダでコマンドプロンプトを開いて実行する。
 `py` が見つからない場合は、`py` を `python` に置き換える。
 
-### 手順 1. ツールを展開
+### 手順 1. ツールを取り出す（GitHub からクローン）
 
-| 操作                                        | 期待結果                                                          |
-| ------------------------------------------- | ----------------------------------------------------------------- |
-| 浅い階層に展開する（例: `C:\tools\nohin\`） | フォルダの中に `nohin\`、`bin\`、`tests\`、`README.md` などがある |
+リポジトリは公開（https://github.com/ConniConni/nohin_assist）なので、GitHub へのログインは要らない。
+試す版はタグで指定する（例: `v0.2.0`）。
+
+| 操作 | 期待結果 |
+| ---- | -------- |
+| `git --version` | `git version 2.…` が表示される。表示されない場合は Git for Windows が必要（社内で許可されているか確認する） |
+| `git clone --branch v0.2.0 https://github.com/ConniConni/nohin_assist.git C:\tools\nohin` | `C:\tools\nohin\` ができ、中に `nohin\`、`bin\`、`tests\`、`README.md` などがある。英語で「detached HEAD」の注意が出るが、決まった版を開いているという意味で問題ない |
+| `cd /d C:\tools\nohin` → `py -m nohin --help` | `usage: nohin …` の下に `納品サポートツール v0.2.0` と表示される |
+
+- パスが長くなりすぎないよう、`C:\tools\` などの浅い場所に取り出す。
+- 会社 PC ではコミット・push をしない。試行の結果はメモで持ち帰る（社内の情報が混ざらないようにするため）。
+- プロキシのエラーで取り出せない場合は、`git config --global http.proxy http://<社内プロキシ>:<ポート>` を設定してから再実行する。
+- Git が使えない場合は、GitHub のページでタグを選び「Code」→「Download ZIP」で取り出して、浅い場所に展開してもよい。
+
+**修正版に入れ替えるとき**（例: `v0.2.1`）。`config.toml`・`delivery.toml`・`work\` は Git の管理外なので、入れ替えても消えない。
+
+```
+cd /d C:\tools\nohin
+git fetch --tags
+git checkout v0.2.1
+```
 
 ### 手順 2. Python とライブラリを確認する
 
