@@ -36,9 +36,10 @@
 
 | 操作                                                 | 期待結果                                                                                                                                                      |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `py -m unittest discover -s tests -t .`              | 最後に `Ran 25 tests` と `OK` が表示される（テストは一時フォルダの中だけで動く）                                                                              |
+| `py -m unittest discover -s tests -t .`              | 最後に `Ran 28 tests` と `OK` が表示される（テストは一時フォルダの中だけで動く）                                                                              |
 | `py -m tests.dummy demo`                             | `ダミーを作成しました: …\demo` と表示され、`demo\src\` に案件A〜C ができる                                                                                    |
 | `bin\collect.bat demo\delivery.toml`                 | `管理表を保存しました`、`判定: 未完了`、`全 63 行（対象 60 / 要確認 2 / 除外 1）`、`エラー 2 件 / 警告 5 件 / 情報 2 件` と表示され、エラー・警告の内訳が続く |
+| `py -m tests.verify_demo`                            | 正誤表（[docs/デモ正誤表.md](docs/デモ正誤表.md)）と実際の管理表を突き合わせ、全項目に `○` が付いて最後に `照合結果: 30/30 件 一致` と表示される。`×` があれば期待と実際の出力が並べて表示される |
 | `demo\work\納品管理表_デモ納品.xlsx` を Excel で開く | 「サマリー」「管理表」「警告」の3シートがある。管理表の「対象」と各ステータス列でプルダウンが選べ、「済」は緑、「要確認」は黄色になる                         |
 
 ### 手順 4. 設定ファイルを用意する
@@ -136,4 +137,8 @@
 python -m unittest discover -s tests -t .     # テスト
 python -m tests.dummy demo                    # demo/ にダミーの3案件を作る
 python -m nohin collect -d demo/delivery.toml
+python -m tests.verify_demo                   # 正誤表と実際の出力を突き合わせる（○/×）
+python -m tests.verify_demo demo --markdown docs/デモ正誤表.md   # 正誤表を再生成する
 ```
+
+ダミーに仕込む内容を変えたときは、`tests/dummy.py` と `tests/verify_demo.py` の CASES・EXPECTED_ISSUES・EXPECTED_TOTALS を合わせて直し、正誤表を再生成する（古いままだとテストが失敗する）。

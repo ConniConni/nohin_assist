@@ -71,6 +71,7 @@ def make_demo(out: Path) -> Path:
     b = make_clean_project(out / "src" / "案件B", codes=("030", "040"), date_dirs=True, tag="B")
     touch(b / "040.設計" / "成果物" / "外部Rv" / "20261120" / rv_name("040", "社外", 3, "B"))  # 2回目が抜け
     touch(b / "040.設計" / "成果物" / "外部Rv" / "20261120" / cl_name("040", "社外", 3, "B"))
+    touch(b / "060.UD作成" / "単体試験仕様書_B.xlsx")                                     # 対象工程外（読み飛ばし）
 
     c = make_clean_project(out / "src" / "案件C", codes=("060", "070", "080", "090"), tag="C")
     (c / "090.SD消化" / "試験結果報告書_C.xlsx").unlink()                                  # ドキュメントの欠け
