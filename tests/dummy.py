@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import shutil
 import sys
+from datetime import date
 from pathlib import Path
+
+from openpyxl import Workbook
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -31,6 +34,59 @@ def touch(p: Path) -> Path:
     return p
 
 
+# レビュー記録表の指摘: (指摘事項, 処置欄, 処置の日付, 捺印(自社)欄の文字)
+COMPLETE = [("誤字があります", "修正しました", date(2026, 11, 18), ""),
+            ("条件分岐の記載漏れ", "追記しました", date(2026, 11, 20), "")]
+HEADERS = ["No.", "日付", "指摘事項", "指摘者", "対処欄", "処置欄", "日付", "捺印(自社)", "担当者", "捺印(取引先)"]
+
+
+def write_review_record(p: Path, findings=COMPLETE, *, extra_upper_rows: int = 0, with_table: bool = True,
+                        with_approval: bool = True, header_merged: bool = False) -> Path:
+    """文字だけが入った本物のレビュー記録表（xlsx）を作る。印影はまだ入れない。
+
+    上部: タイトル、承認欄（H2「承認」の下の H3:H4）、実施日時・場所・参加者・ドキュメント名。
+    指摘の表: 見出し（A〜J列）、指摘の行、No. と「-」だけの行が2行、空行のあとに備考（表の外）。
+    """
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "レビュー記録表"
+    ws["A1"] = "レビュー記録表"
+    if with_approval:
+        ws["H2"], ws["I2"], ws["J2"] = "承認", "確認", "作成"
+        for col in "HIJ":
+            ws.merge_cells(f"{col}3:{col}4")
+    r = 3
+    for label in ["レビュー実施日時", "場所", "参加者", "ドキュメント名"]:
+        ws.cell(r, 1, label)
+        r += 1
+    for i in range(1 + extra_upper_rows):  # ドキュメントが多いと上部の行が増える
+        ws.cell(r, 2, f"ドキュメント{i + 1}")
+        r += 1
+    h = r + 1
+    if not with_table:
+        ws.cell(h, 1, "（指摘の表なし）")
+        wb.save(p)
+        return p
+    for c, text in enumerate(HEADERS, start=1):
+        ws.cell(h, c, text)
+        if header_merged:
+            ws.merge_cells(start_row=h, start_column=c, end_row=h + 1, end_column=c)
+    r = h + (2 if header_merged else 1)
+    for n, (finding, action, d, mark) in enumerate(findings, start=1):
+        for c, v in enumerate([n, date(2026, 11, 10), finding, "山田", "対応方針", action, d, mark, "", ""], start=1):
+            if v not in ("", None):
+                ws.cell(r, c, v)
+        r += 1
+    for n in range(len(findings) + 1, len(findings) + 3):  # 様式に最初からある空き行
+        ws.cell(r, 1, n)
+        ws.cell(r, 8, "-")
+        r += 1
+    ws.cell(r + 6, 3, "備考: 特になし")  # 空行が続いたあとの表の外（指摘として数えない）
+    wb.save(p)
+    return p
+
+
 def rv_name(code, side, n, tag="xxx"):
     return f"レビュー記録表({side})({n}回目)_{RV[code]}_{tag}.xlsx"
 
@@ -50,7 +106,7 @@ def make_clean_project(root: Path, codes=tuple(FOLDERS), date_dirs: bool = False
             sub = base / "成果物" / ("内部Rv" if side == "社内" else "外部Rv")
             if date_dirs:
                 sub = sub / f"2026110{n}"
-            touch(sub / rv_name(code, side, n, tag))
+            write_review_record(sub / rv_name(code, side, n, tag))
             touch(sub / cl_name(code, side, n, tag))
     return root
 
@@ -61,21 +117,36 @@ def make_demo(out: Path) -> Path:
     a = make_clean_project(out / "src" / "案件A", tag="A")
     # 案件A: 例外をいくつか入れる
     touch(a / "040.設計" / "back" / "機能設計書_A_旧版.xlsx")                          # back は対象外
-    touch(a / "040.設計" / "成果物" / "内部Rv" / rv_name("040", "社内", 2, "A"))       # 2回目（チェックリストなし）
+    write_review_record(a / "040.設計" / "成果物" / "内部Rv" / rv_name("040", "社内", 2, "A"))  # 2回目（チェックリストなし）
     touch(a / "040.設計" / "メモ.txt")                                                 # 規則外（対象外）
     touch(a / "040.設計" / "成果物" / "内部Rv" / "レビュー記録表_設計_A.xlsx")          # 規則外（名前の誤り→要確認）
-    touch(a / "060.UD作成" / "成果物" / "外部Rv" / rv_name("060", "社内", 1, "A2"))   # 社内外の不一致
+    write_review_record(a / "060.UD作成" / "成果物" / "外部Rv" / rv_name("060", "社内", 1, "A2"))  # 社内外の不一致
     touch(a / "080.SD作成" / "成果物" / "内部Rv" / "080_レビューチェックリスト_SD仕様書（社内）（2回目）_A.xlsx")  # 全角括弧
     touch(a / "040.設計" / "~$機能設計書_A.xlsx")                                       # Excel の一時ファイル（無視）
 
+    # 案件A: レビュー記録表の中身
+    rv = lambda code, side, n: a / FOLDERS[code] / "成果物" / ("内部Rv" if side == "社内" else "外部Rv") / rv_name(code, side, n, "A")  # noqa: E731
+    write_review_record(rv("040", "社内", 1), extra_upper_rows=3, header_merged=True)       # 上部の行が多い・見出しが2行結合
+    write_review_record(rv("040", "社外", 1), [COMPLETE[0], ("説明不足", "", None, "")])     # 処置中
+    write_review_record(rv("030", "社内", 1), [("誤記", "修正済み", None, "")])             # 日付なし
+    write_review_record(rv("030", "社外", 1), [("誤記", "修正済み", "11/20", "")])          # 日付が読めない（年がない）
+    write_review_record(rv("050", "社内", 1), [COMPLETE[0], ("質問", "回答のみ", None, "－"),
+                                               ("確認事項", "", None, "-")])                # 捺印不要（全角・半角）
+    write_review_record(rv("070", "社内", 1), [("指摘なし", "", None, "")])                 # 指摘なしの印
+    write_review_record(rv("080", "社内", 1), [COMPLETE[0], ("", "追記しました", date(2026, 11, 21), "")])  # 指摘欄が空の行に記入
+    write_review_record(rv("090", "社内", 1), with_table=False)                             # 表なし
+    write_review_record(rv("090", "社外", 1), [])                                           # 指摘0件
+
     b = make_clean_project(out / "src" / "案件B", codes=("030", "040"), date_dirs=True, tag="B")
-    touch(b / "040.設計" / "成果物" / "外部Rv" / "20261120" / rv_name("040", "社外", 3, "B"))  # 2回目が抜け
+    write_review_record(b / "040.設計" / "成果物" / "外部Rv" / "20261120" / rv_name("040", "社外", 3, "B"))  # 2回目が抜け
     touch(b / "040.設計" / "成果物" / "外部Rv" / "20261120" / cl_name("040", "社外", 3, "B"))
     touch(b / "060.UD作成" / "単体試験仕様書_B.xlsx")                                     # 対象工程外（読み飛ばし）
 
     c = make_clean_project(out / "src" / "案件C", codes=("060", "070", "080", "090"), tag="C")
     (c / "090.SD消化" / "試験結果報告書_C.xlsx").unlink()                                  # ドキュメントの欠け
     touch(c / "080.SD作成" / "結合試験仕様書_C_v2.xlsx")                                   # ドキュメント重複
+    write_review_record(c / "060.UD作成" / "成果物" / "内部Rv" / rv_name("060", "社内", 1, "C"),
+                        with_approval=False)                                                  # 承認欄なし
 
     shutil.copy(ROOT / "config.example.toml", out / "config.toml")
     (out / "delivery.toml").write_text(

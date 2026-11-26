@@ -159,7 +159,11 @@ def _check_values_and_order(records: list[Record]) -> list[Issue]:
         for i, k in enumerate(STATUS_KEYS):
             if getattr(r, k) != ST_DONE:
                 continue
-            pending = [STATUS_HEADERS[p] for p in STATUS_KEYS[:i] if getattr(r, p) not in (ST_DONE, ST_NA)]
+            prereqs = STATUS_KEYS[:i]
+            if k == "st_self":
+                # 自社捺印は指摘展開の前後どちらでも進められる（Step 3 までは指摘展開の更新漏れが多いため）
+                prereqs = tuple(p for p in prereqs if p != "st_share")
+            pending = [STATUS_HEADERS[p] for p in prereqs if getattr(r, p) not in (ST_DONE, ST_NA)]
             if pending:
                 out.append(Issue(LEVEL_WARN, r.project, "工程順序",
                                  f"No.{r.no} {STATUS_HEADERS[k]}が済ですが、{'・'.join(pending)}が済になっていません", ids))

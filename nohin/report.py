@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .model import (LEVEL_ERROR, LEVEL_INFO, LEVEL_WARN, STATUS_HEADERS, STATUS_KEYS, ST_DONE, ST_NA, ST_NG,
+from .model import (KIND_RV, RV_ACTION_DONE, RV_IN_PROGRESS, RV_NO_FINDING, RV_NO_TABLE, RV_UNREAD, LEVEL_ERROR, LEVEL_INFO, LEVEL_WARN, STATUS_HEADERS, STATUS_KEYS, ST_DONE, ST_NA, ST_NG,
                     ST_TODO, TARGET_CHECK, TARGET_EXCLUDE, TARGET_MANUAL, TARGET_AUTO, Issue, Record)
 
 
@@ -89,6 +89,14 @@ def summarize(delivery_name: str, records: list[Record], issues: list[Issue]) ->
     for k in STATUS_KEYS:
         c = Counter(getattr(r, k) for r in active)
         rows.append([STATUS_HEADERS[k], c.get(ST_DONE, 0), c.get(ST_TODO, 0), c.get(ST_NG, 0), c.get(ST_NA, 0)])
+
+    rv = [r for r in records if r.kind == KIND_RV and r.target != TARGET_EXCLUDE]
+    if rv:
+        rows += [[], ["■ レビュー記録表の状況", "件数"]]
+        c = Counter(r.rv_state or "（未読取）" for r in rv)
+        for state in (RV_ACTION_DONE, RV_IN_PROGRESS, RV_NO_FINDING, RV_NO_TABLE, RV_UNREAD, "（未読取）"):
+            if c.get(state):
+                rows.append([state, c[state]])
 
     rows += [[], ["■ 案件・工程別", "工程", "対象数", "完了", "未完了", "要確認"]]
     groups: dict[tuple, list[Record]] = defaultdict(list)

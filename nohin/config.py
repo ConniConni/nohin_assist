@@ -48,6 +48,22 @@ class Layout:
 
 
 @dataclass(frozen=True)
+class ReviewTableConfig:
+    """レビュー記録表の中身（指摘の表・承認欄）を読むための設定。文字は正規化して比較する。"""
+    finding_labels: tuple[str, ...] = ("指摘事項", "指摘内容")
+    action_labels: tuple[str, ...] = ("処置欄", "処置内容")
+    date_labels: tuple[str, ...] = ("日付", "処置日")
+    self_stamp_labels: tuple[str, ...] = ("捺印(自社)", "自社印")
+    partner_stamp_labels: tuple[str, ...] = ("捺印(取引先)", "取引先印")
+    no_labels: tuple[str, ...] = ("No.", "No", "NO.", "番号")
+    approval_labels: tuple[str, ...] = ("承認",)
+    not_required_marks: tuple[str, ...] = ("-", "ー", "―", "‐", "−", "—", "─")
+    no_finding_marks: tuple[str, ...] = ("指摘なし", "以下余白")
+    blank_stop_rows: int = 5
+    header_search_rows: int = 200
+
+
+@dataclass(frozen=True)
 class Config:
     path: Path
     layout: Layout
@@ -55,8 +71,10 @@ class Config:
     documents: tuple[DocRule, ...]
     review_record: ReviewRule
     checklist: ReviewRule
-    default_stamper: str = ""
+    handler: str = ""      # 行ごとの自社印（対応者）の既定値
+    approver: str = ""     # 社内レビュー記録表の承認者の既定値
     company_name: str = ""
+    review_table: ReviewTableConfig = field(default_factory=ReviewTableConfig)
 
     def process_by_rv_name(self, name: str) -> Process | None:
         return next((p for p in self.processes.values() if p.rv_name == name), None)
@@ -171,6 +189,26 @@ def load_config(path: str | Path) -> Config:
         ))
 
     stamp = raw.get("stamp", {})
+    rt_raw = raw.get("review_table", {})
+    defaults = ReviewTableConfig()
+    rt_kwargs = {}
+    for key in ("finding_labels", "action_labels", "date_labels", "self_stamp_labels", "partner_stamp_labels",
+                "no_labels", "approval_labels", "not_required_marks", "no_finding_marks"):
+        if key in rt_raw:
+            v = rt_raw[key]
+            if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+                raise ConfigError(f"review_table.{key} は文字列のリストで書いてください")
+            rt_kwargs[key] = tuple(v)
+    for key in ("blank_stop_rows", "header_search_rows"):
+        if key in rt_raw:
+            v = rt_raw[key]
+            if not isinstance(v, int) or v < 1:
+                raise ConfigError(f"review_table.{key} は1以上の整数で書いてください")
+            rt_kwargs[key] = v
+    for key in ("finding_labels", "action_labels", "date_labels", "self_stamp_labels", "approval_labels"):
+        if not rt_kwargs.get(key, getattr(defaults, key)):
+            raise ConfigError(f"review_table.{key} が空です")
+
     return Config(
         path=path,
         layout=layout,
@@ -180,8 +218,10 @@ def load_config(path: str | Path) -> Config:
                                    "review_record", ("side", "round", "pname")),
         checklist=_review_rule(_require(raw, "checklist", "config"), "チェックリスト",
                                "checklist", ("code", "pname", "side", "round")),
-        default_stamper=stamp.get("default_stamper", ""),
+        handler=stamp.get("handler", stamp.get("default_stamper", "")),
+        approver=stamp.get("approver", ""),
         company_name=stamp.get("company_name", ""),
+        review_table=ReviewTableConfig(**rt_kwargs),
     )
 
 
@@ -215,6 +255,19 @@ def load_delivery(path: str | Path, cfg: Config | None = None) -> Delivery:
     if not projects:
         raise ConfigError("delivery.toml に [[projects]] が1つもありません")
     return Delivery(path=path, name=name, work_dir=work_dir, projects=tuple(projects))
+
+
+TOOL_DIR = Path(__file__).resolve().parent.parent
+
+
+def find_config_for_inspect(explicit: str | None) -> Path:
+    """inspect 用: 明示指定 → ツールのフォルダの config.toml → config.example.toml。"""
+    if explicit:
+        return Path(explicit)
+    for c in (TOOL_DIR / "config.toml", TOOL_DIR / "config.example.toml"):
+        if c.exists():
+            return c
+    raise ConfigError("config.toml が見つかりません")
 
 
 def find_config(delivery_path: Path, explicit: str | None) -> Path:

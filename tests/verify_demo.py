@@ -19,10 +19,11 @@ from openpyxl import load_workbook
 from nohin.config import load_config, load_delivery
 from nohin.manifest import read_manifest
 
-# ステータスの並び: (自社捺印, 取引先送付, 取引先捺印, 納品コピー)
-NEED_ALL = ("未", "未", "未", "未")
-SELF_ONLY = ("未", "不要", "不要", "未")
-COPY_ONLY = ("不要", "不要", "不要", "未")
+# ステータスの並び: (指摘展開, 自社捺印, 取引先送付, 取引先捺印, 納品コピー)
+NEED_ALL = ("不要", "未", "未", "未", "未")   # ドキュメント（自社＋取引先）
+RV_EXT = ("未", "未", "未", "未", "未")       # 社外レビュー記録表（指摘展開あり）
+SELF_ONLY = ("不要", "未", "不要", "不要", "未")
+COPY_ONLY = ("不要", "不要", "不要", "不要", "未")
 
 
 @dataclass
@@ -36,6 +37,7 @@ class Case:
     target: str | None = None       # 期待する「対象」
     statuses: tuple[str, ...] | None = None
     dest_rel: str | None = None     # 期待する納品先（相対）
+    rv: tuple[str, str, str] | None = None  # 期待する (記録表の状況, 指摘の進捗, 承認印の日付)
     issues: list[tuple[str, str]] = field(default_factory=list)  # 期待する (区分, 種類)
 
     def expectation(self) -> str:
@@ -46,6 +48,8 @@ class Case:
             parts.append("ステータス=" + "/".join(self.statuses))
         if self.dest_rel:
             parts.append(f"納品先={self.dest_rel}")
+        if self.rv:
+            parts.append(f"状況={self.rv[0]}、進捗={self.rv[1]}、承認印の日付={self.rv[2] or '（空）'}")
         parts += [f"{lv}「{cat}」" for lv, cat in self.issues]
         return "、".join(parts)
 
@@ -73,7 +77,7 @@ CASES: list[Case] = [
          target="自動", statuses=COPY_ONLY, issues=[("情報", "全角括弧"), ("警告", "ペア不足")]),
     Case("B-1", "仕込み", "案件B", "040.設計/成果物/外部Rv/20261120/レビュー記録表(社外)(3回目)_設計_B.xlsx",
          "社外レビューを1回目・3回目だけにした（2回目が抜け）",
-         target="自動", statuses=NEED_ALL, issues=[("警告", "回数の抜け")]),
+         target="自動", statuses=RV_EXT, issues=[("警告", "回数の抜け")]),
     Case("B-2", "仕込み", "案件B", "060.UD作成/単体試験仕様書_B.xlsx",
          "対象工程（030・040）以外の工程フォルダにファイルを置いた", present=False),
     Case("C-1", "仕込み", "案件C", "080.SD作成/結合試験仕様書_C.xlsx",
@@ -91,17 +95,47 @@ CASES: list[Case] = [
     Case("N-3", "正常", "案件A", "060.UD作成/単体試験仕様書_A.xlsx", "単体試験仕様書（自社のみ）",
          target="自動", statuses=SELF_ONLY),
     Case("N-4", "正常", "案件A", "040.設計/成果物/外部Rv/レビュー記録表(社外)(1回目)_設計_A.xlsx",
-         "社外レビュー記録表（自社＋取引先）", target="自動", statuses=NEED_ALL,
-         dest_rel="案件A/040.設計/成果物/レビュー記録表(社外)(1回目)_設計_A.xlsx"),
+         "社外レビュー記録表（自社＋取引先）・処置中（1件だけ処置済み）", target="自動", statuses=RV_EXT,
+         dest_rel="案件A/040.設計/成果物/レビュー記録表(社外)(1回目)_設計_A.xlsx",
+         rv=("処置中", "指摘2・処置1・日付1", "")),
     Case("N-5", "正常", "案件A", "040.設計/成果物/内部Rv/レビュー記録表(社内)(1回目)_設計_A.xlsx",
-         "社内レビュー記録表（自社のみ）", target="自動", statuses=SELF_ONLY),
+         "社内レビュー記録表（自社のみ）・上部の行が多い・見出しが2行結合", target="自動", statuses=SELF_ONLY,
+         rv=("処置完了", "指摘2・処置2・日付2", "2026-11-20")),
     Case("N-6", "正常", "案件A", "040.設計/成果物/外部Rv/040_レビューチェックリスト_設計(社外)(1回目)_A.xlsx",
          "チェックリスト（捺印なし）", target="自動", statuses=COPY_ONLY),
     Case("N-7", "正常", "案件B", "040.設計/成果物/外部Rv/20261101/レビュー記録表(社外)(1回目)_設計_B.xlsx",
-         "日付フォルダの中（パターン2）", target="自動", statuses=NEED_ALL,
-         dest_rel="案件B/040.設計/成果物/レビュー記録表(社外)(1回目)_設計_B.xlsx"),
+         "日付フォルダの中（パターン2）・完成した社外の記録表", target="自動", statuses=RV_EXT,
+         dest_rel="案件B/040.設計/成果物/レビュー記録表(社外)(1回目)_設計_B.xlsx",
+         rv=("処置完了", "指摘2・処置2・日付2", "")),
     Case("N-8", "正常", "案件C", "090.SD消化/結合試験成績書_C.xlsx", "結合試験成績書（自社＋取引先）",
          target="自動", statuses=NEED_ALL),
+    Case("N-9", "正常", "案件C", "070.UD消化/成果物/内部Rv/レビュー記録表(社内)(1回目)_UD消化_C.xlsx",
+         "完成した社内の記録表（表の下の空行のあとに備考あり）", target="自動", statuses=SELF_ONLY,
+         rv=("処置完了", "指摘2・処置2・日付2", "2026-11-20")),
+    # ---- レビュー記録表の中身に仕込んだもの ----
+    Case("R-1", "仕込み", "案件A", "030.調査/成果物/内部Rv/レビュー記録表(社内)(1回目)_調査_A.xlsx",
+         "処置欄はあるが処置の日付が空", target="自動",
+         rv=("処置中", "指摘1・処置1・日付0", ""), issues=[("警告", "日付なし")]),
+    Case("R-2", "仕込み", "案件A", "030.調査/成果物/外部Rv/レビュー記録表(社外)(1回目)_調査_A.xlsx",
+         "処置の日付が「11/20」（年がなく読めない）", target="自動",
+         rv=("処置中", "指摘1・処置1・日付0", ""), issues=[("警告", "日付なし")]),
+    Case("R-3", "仕込み", "案件A", "050.製造/成果物/内部Rv/レビュー記録表(社内)(1回目)_CD_A.xlsx",
+         "捺印欄が全角「－」・半角「-」の行（捺印不要。処置・日付なしでも可）", target="自動",
+         rv=("処置完了", "指摘3（捺印不要2）・処置2・日付1", "2026-11-18")),
+    Case("R-4", "仕込み", "案件A", "070.UD消化/成果物/内部Rv/レビュー記録表(社内)(1回目)_UD消化_A.xlsx",
+         "指摘事項に「指摘なし」とだけ書いた", target="自動",
+         rv=("指摘なし", "指摘0・処置0・日付0", ""), issues=[("情報", "指摘0件")]),
+    Case("R-5", "仕込み", "案件A", "080.SD作成/成果物/内部Rv/レビュー記録表(社内)(1回目)_SD作成_A.xlsx",
+         "指摘事項が空の行に処置と日付を書いた", target="自動",
+         rv=("処置完了", "指摘1・処置1・日付1", "2026-11-18"), issues=[("警告", "指摘欄が空の行に記入")]),
+    Case("R-6", "仕込み", "案件A", "090.SD消化/成果物/内部Rv/レビュー記録表(社内)(1回目)_試験結果報告書_A.xlsx",
+         "指摘の表がない", target="自動", rv=("表なし", "", ""), issues=[("警告", "指摘表なし")]),
+    Case("R-7", "仕込み", "案件A", "090.SD消化/成果物/外部Rv/レビュー記録表(社外)(1回目)_試験結果報告書_A.xlsx",
+         "指摘の表はあるが指摘の行がない", target="自動",
+         rv=("指摘なし", "指摘0・処置0・日付0", ""), issues=[("情報", "指摘0件")]),
+    Case("R-8", "仕込み", "案件C", "060.UD作成/成果物/内部Rv/レビュー記録表(社内)(1回目)_UD作成_C.xlsx",
+         "上部に承認欄がない", target="自動",
+         rv=("処置完了", "指摘2・処置2・日付2", "2026-11-20"), issues=[("警告", "承認欄なし")]),
 ]
 
 # 警告シートに出るべきもの（これ以外が出たら×）: (区分, 案件, 種類, 内容に含まれる文字列)
@@ -113,8 +147,15 @@ EXPECTED_ISSUES: list[tuple[str, str, str, str]] = [
     ("警告", "案件A", "規則外", "レビュー記録表_設計_A.xlsx"),
     ("警告", "案件B", "回数の抜け", "工程 040 社外"),
     ("警告", "案件C", "ドキュメントなし", "試験結果報告書"),
+    ("警告", "案件A", "日付なし", "No.1（空）"),
+    ("警告", "案件A", "日付なし", "「11/20」を日付として読めません"),
+    ("警告", "案件A", "指摘欄が空の行に記入", "SD作成_A.xlsx"),
+    ("警告", "案件A", "指摘表なし", "試験結果報告書_A.xlsx"),
+    ("警告", "案件C", "承認欄なし", "UD作成_C.xlsx"),
     ("情報", "案件A", "全角括弧", "SD仕様書（社内）（2回目）"),
     ("情報", "案件A", "規則外（対象外）", "メモ.txt"),
+    ("情報", "案件A", "指摘0件", "UD消化_A.xlsx"),
+    ("情報", "案件A", "指摘0件", "試験結果報告書_A.xlsx"),
 ]
 
 # 件数: (全行, 自動, 手動, 除外, 要確認)
@@ -158,7 +199,7 @@ def verify(demo_dir: Path) -> list[Result]:
             actual.append(f"No.{r.no} 対象={r.target}")
             if c.target and r.target != c.target:
                 problems.append("対象")
-            got = (r.st_self, r.st_send, r.st_partner, r.st_copy)
+            got = (r.st_share, r.st_self, r.st_send, r.st_partner, r.st_copy)
             if c.statuses:
                 actual.append("ステータス=" + "/".join(got))
                 if got != c.statuses:
@@ -167,6 +208,11 @@ def verify(demo_dir: Path) -> list[Result]:
                 actual.append(f"納品先={r.dest_rel}")
                 if r.dest_rel != c.dest_rel:
                     problems.append("納品先")
+            if c.rv:
+                got_rv = (r.rv_state, r.rv_progress, r.rv_approval_date)
+                actual.append(f"状況={got_rv[0]}、進捗={got_rv[1]}、承認印の日付={got_rv[2] or '（空）'}")
+                if got_rv != c.rv:
+                    problems.append("記録表")
         for lv, cat in c.issues:
             # 行に紐づく警告は対象No、行がないもの（欠け）は内容の文字列で探す
             if r is not None:
@@ -210,7 +256,7 @@ def to_markdown(results: list[Result] | None = None) -> str:
         "> このファイルは `python -m tests.verify_demo demo --markdown docs/デモ正誤表.md` で生成している。",
         "> 内容を変えるときは `tests/verify_demo.py` の CASES と `tests/dummy.py` を直してから再生成する。",
         "",
-        "ステータスの並び: 自社捺印 / 取引先送付 / 取引先捺印 / 納品コピー",
+        "ステータスの並び: 指摘展開 / 自社捺印 / 取引先送付 / 取引先捺印 / 納品コピー",
         "",
         "## ファイルごとの期待結果",
         "",

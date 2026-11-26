@@ -149,8 +149,12 @@ def build_record(project_name: str, rel: str, src: str, cfg: Config, now: str) -
     rec.st_self = ST_TODO if self_stamp else ST_NA
     rec.st_send = rec.st_partner = ST_TODO if partner else ST_NA
     rec.st_copy = ST_TODO
+    # 指摘展開は社外レビュー記録表だけ（指摘を書いた時点で取引先に展開する）
+    rec.st_share = ST_TODO if info.kind == KIND_RV and partner else ST_NA
     rec.teams_rel = rec.dest_rel if partner else ""
-    rec.stamper = cfg.default_stamper if self_stamp else ""
+    rec.handler = cfg.handler if self_stamp else ""
+    # 承認欄に自社が押すのは、取引先に展開しない（社内）レビュー記録表だけ
+    rec.approver = cfg.approver if info.kind == KIND_RV and not partner else ""
     side_ok = not (loc.kind == "review" and loc.side_dir and info.side and loc.side_dir != info.side)
     code_ok = not (info.name_code and rec.process and info.name_code != rec.process)
     good = loc.kind == expected_location(info.kind) and not info.problems and side_ok and code_ok

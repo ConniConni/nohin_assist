@@ -5,15 +5,17 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from openpyxl import load_workbook
 
+from nohin import progress
 from nohin.cli import main
 from nohin.config import load_config, load_delivery
 from nohin.manifest import ManifestError, ensure_not_open, read_manifest
 from nohin.model import TARGET_CHECK, TARGET_EXCLUDE
 from nohin.scan import scan_project
-from tests.dummy import make_clean_project, make_demo, touch
+from tests.dummy import make_clean_project, make_demo, touch, write_review_record
 
 
 def run(*args) -> tuple[int, str]:
@@ -113,7 +115,7 @@ class FlowTest(unittest.TestCase):
         ws = wb["管理表"]
         hm = {c.value: c.column for c in ws[1]}
         for row in range(2, ws.max_row + 1):
-            for h in ("自社捺印", "取引先送付", "取引先捺印", "納品コピー"):
+            for h in ("指摘展開", "自社捺印", "取引先送付", "取引先捺印", "納品コピー"):
                 if ws.cell(row, hm[h]).value == "未":
                     ws.cell(row, hm[h], "済")
         wb.save(mpath)
@@ -135,6 +137,62 @@ class FlowTest(unittest.TestCase):
         cats = {r[2] for r in self.issues()}
         self.assertIn("工程順序", cats)
         self.assertIn("入力値", cats)
+
+    def test_report_rereads_review_records(self):
+        # 記録表の処置を埋めて report を実行すると、状況・進捗が更新され、手で書いた備考は残る
+        self.collect()
+        name = "レビュー記録表(社外)(1回目)_設計_A.xlsx"
+        wb = load_workbook(self.mpath)
+        ws = wb["管理表"]
+        hm = {c.value: c.column for c in ws[1]}
+        row = next(r for r in range(2, ws.max_row + 1) if ws.cell(r, hm["ファイル名"]).value == name)
+        self.assertEqual(ws.cell(row, hm["記録表の状況"]).value, "処置中")
+        ws.cell(row, hm["備考"], "取引先に確認中")
+        wb.save(self.mpath)
+
+        write_review_record(self.demo / "src" / "案件A" / "040.設計" / "成果物" / "外部Rv" / name)  # 処置完了の内容に
+        run("report", "-d", self.dfile)
+        rec = next(r for r in read_manifest(self.mpath)[0] if r.filename == name)
+        self.assertEqual((rec.rv_state, rec.rv_progress, rec.note), ("処置完了", "指摘2・処置2・日付2", "取引先に確認中"))
+
+    def test_one_broken_record_does_not_stop(self):
+        # 記録表の読み取りで想定外のエラーが起きても、その行を「読取不可」にして処理を続ける
+        target = "レビュー記録表(社内)(1回目)_CD_A.xlsx"
+        original = progress.read_review_table
+
+        def flaky(path, cfg):
+            if Path(path).name == target:
+                raise RuntimeError("想定外")
+            return original(path, cfg)
+
+        with mock.patch.object(progress, "read_review_table", flaky):
+            self.collect()
+        rec = next(r for r in read_manifest(self.mpath)[0] if r.filename == target)
+        self.assertEqual(rec.rv_state, "読取不可")
+        self.assertTrue(any(r[2] == "記録表読取不可" and "RuntimeError" in r[3] for r in self.issues()))
+
+    def test_share_order_exception(self):
+        # 社外レビュー記録表: 指摘展開が未でも自社捺印の済は警告しない。取引先送付の済は警告する
+        self.collect()
+        wb = load_workbook(self.mpath)
+        ws = wb["管理表"]
+        hm = {c.value: c.column for c in ws[1]}
+        name = "レビュー記録表(社外)(1回目)_設計_B.xlsx"
+        row = next(r for r in range(2, ws.max_row + 1) if ws.cell(r, hm["ファイル名"]).value == name)
+        no = ws.cell(row, hm["No"]).value
+        ws.cell(row, hm["自社捺印"], "済")
+        wb.save(self.mpath)
+        run("report", "-d", self.dfile)
+        order = [r for r in self.issues() if r[2] == "工程順序" and str(no) in (r[4] or "")]
+        self.assertEqual(order, [])
+
+        wb = load_workbook(self.mpath)
+        wb["管理表"].cell(row, hm["取引先送付"], "済")
+        wb.save(self.mpath)
+        run("report", "-d", self.dfile)
+        order = [r for r in self.issues() if r[2] == "工程順序" and str(no) in (r[4] or "")]
+        self.assertEqual(len(order), 1)
+        self.assertIn("指摘展開", order[0][3])
 
     def test_locked_manifest(self):
         self.collect()
