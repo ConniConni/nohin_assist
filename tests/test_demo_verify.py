@@ -8,7 +8,7 @@ from pathlib import Path
 
 from nohin.cli import main as nohin_main
 from tests.dummy import make_demo
-from tests.verify_demo import to_markdown, verify
+from tests.verify_demo import to_markdown, verify, verify_deliver
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -26,6 +26,20 @@ class DemoVerifyTest(unittest.TestCase):
     def test_all_cases_match(self):
         ng = [r for r in verify(self.demo) if not r.ok]
         self.assertEqual(ng, [], "\n".join(f"{r.id}: 期待={r.expected} / 実際={r.actual}" for r in ng))
+
+    def test_deliver_stage_matches(self):
+        # 試行手順と同じ順: check（止まる）→ overwrite
+        dfile = str(self.demo / "delivery.toml")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(nohin_main(["deliver", "-d", dfile, "--mode", "check"]), 1)
+            self.assertEqual(nohin_main(["deliver", "-d", dfile, "--mode", "overwrite"]), 0)
+        ng = [r for r in verify_deliver(self.demo) if not r.ok]
+        self.assertEqual(ng, [], "\n".join(f"{r.id}: 期待={r.expected} / 実際={r.actual}" for r in ng))
+
+    def test_deliver_stage_detects_mismatch(self):
+        # deliver を実行しないまま照合すると × になること
+        ng = {r.id for r in verify_deliver(self.demo) if not r.ok}
+        self.assertTrue({"D-1", "D-2", "T-2"} <= ng)
 
     def test_detects_mismatch(self):
         # 仕込みを1つ消すと、照合で × になること（照合が素通りしていないかの確認）

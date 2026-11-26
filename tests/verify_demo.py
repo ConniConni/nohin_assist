@@ -1,9 +1,11 @@
 """デモデータの正誤表と、実際の出力（管理表）との突き合わせ。
 
-    python -m tests.verify_demo                         # demo/ の管理表を照合して ○/× を表示
+    python -m tests.verify_demo                         # demo/ の管理表を照合して ○/× を表示（collect のあと）
+    python -m tests.verify_demo --stage deliver         # deliver（overwrite）のあとの状態を照合
     python -m tests.verify_demo demo --markdown docs/デモ正誤表.md   # 正誤表を Markdown で書き出す
 
-正誤表（CASES / EXPECTED_ISSUES / EXPECTED_TOTALS）は tests/dummy.py の make_demo() と対応させる。
+正誤表（CASES / EXPECTED_ISSUES / EXPECTED_TOTALS / DELIVER_CASES / EXPECTED_COPIED）は
+tests/dummy.py の make_demo() と対応させる。
 ダミーの内容を変えたら、ここも合わせて直すこと。
 """
 
@@ -152,6 +154,7 @@ EXPECTED_ISSUES: list[tuple[str, str, str, str]] = [
     ("警告", "案件A", "指摘欄が空の行に記入", "SD作成_A.xlsx"),
     ("警告", "案件A", "指摘表なし", "試験結果報告書_A.xlsx"),
     ("警告", "案件C", "承認欄なし", "UD作成_C.xlsx"),
+    ("警告", "案件A", "管理表にないファイル", "案件A/040.設計/古い資料.xlsx"),
     ("情報", "案件A", "全角括弧", "SD仕様書（社内）（2回目）"),
     ("情報", "案件A", "規則外（対象外）", "メモ.txt"),
     ("情報", "案件A", "指摘0件", "UD消化_A.xlsx"),
@@ -160,6 +163,44 @@ EXPECTED_ISSUES: list[tuple[str, str, str, str]] = [
 
 # 件数: (全行, 自動, 手動, 除外, 要確認)
 EXPECTED_TOTALS = {"全行": 63, "自動": 60, "手動": 0, "除外": 1, "要確認": 2}
+
+
+@dataclass
+class DeliverCase:
+    """deliver（check で止まったあと overwrite）を実行したあとの期待結果。"""
+    id: str
+    project: str
+    rel: str            # プロジェクトルートからの相対パス
+    setup: str
+    copy: str           # 期待する「納品コピー」
+    at_dest: bool       # 納品先にあるか
+    backup: bytes | None = None  # 退避されているべき中身（None なら退避なし）
+
+    def expectation(self) -> str:
+        parts = [f"納品コピー={self.copy}", "納品先にあり" if self.at_dest else "納品先になし"]
+        parts.append("退避あり（上書き前の内容）" if self.backup is not None else "退避なし")
+        return "、".join(parts)
+
+
+DELIVER_CASES: list[DeliverCase] = [
+    DeliverCase("D-1", "案件A", "030.調査/調査検討書_A.xlsx",
+                "納品先に原本と同じ内容のファイルを置いた（コピー済みとみなす）", "済", True),
+    DeliverCase("D-2", "案件A", "040.設計/成果物/外部Rv/040_レビューチェックリスト_設計(社外)(1回目)_A.xlsx",
+                "納品先に原本と内容の違うファイルを置いた（check は止まり、overwrite で退避して上書き）", "済", True,
+                backup=b"old version"),
+    DeliverCase("D-3", "案件B", "030.調査/成果物/内部Rv/20261101/030_レビューチェックリスト_調査(社内)(1回目)_B.xlsx",
+                "日付フォルダの中のチェックリスト（成果物/ の直下へ平らに置く）", "済", True),
+    DeliverCase("D-4", "案件A", "080.SD作成/成果物/内部Rv/080_レビューチェックリスト_SD仕様書（社内）（2回目）_A.xlsx",
+                "全角括弧のチェックリスト", "済", True),
+    DeliverCase("D-5", "案件A", "040.設計/機能設計書_A.xlsx",
+                "自社捺印・取引先捺印が未のドキュメント（前の工程が未）", "未", False),
+    DeliverCase("D-6", "案件A", "040.設計/成果物/内部Rv/レビュー記録表_設計_A.xlsx",
+                "対象が「要確認」の行", "未", False),
+    DeliverCase("D-7", "案件A", "040.設計/メモ.txt", "対象が「除外」の行", "未", False),
+]
+
+# deliver のあと「納品コピー」が済になる行の数（捺印の要らない自動の行: 調査検討書2件・チェックリスト23件）
+EXPECTED_COPIED = 25
 
 
 @dataclass
@@ -174,6 +215,51 @@ class Result:
 def _read_issues(path: Path) -> list[tuple[str, str, str, str, str]]:
     ws = load_workbook(path)["警告"]
     return [tuple("" if v is None else str(v) for v in row[:5]) for row in ws.iter_rows(min_row=2, values_only=True)]
+
+
+def _verify_issues(issues) -> list[Result]:
+    """警告シート全体: 期待どおりのものが出ていて、余計なものが出ていないか。"""
+    results: list[Result] = []
+    remaining = list(issues)
+    for n, (lv, proj, cat, text) in enumerate(EXPECTED_ISSUES, start=1):
+        hit = next((i for i in remaining if i[0] == lv and i[1] == proj and i[2] == cat and text in i[3]), None)
+        if hit:
+            remaining.remove(hit)
+        results.append(Result(f"W-{n}", "警告シート", f"{lv} {proj}「{cat}」（{text}）",
+                              "あり" if hit else "なし", hit is not None))
+    for i in remaining:
+        results.append(Result("W-余分", "警告シート", "（出ないはず）", f"{i[0]} {i[1]}「{i[2]}」{i[3]}", False))
+    return results
+
+
+def verify_deliver(demo_dir: Path) -> list[Result]:
+    """deliver（check で止まったあと overwrite）を実行したあとの状態を照合する。"""
+    cfg = load_config(demo_dir / "config.toml")
+    delivery = load_delivery(demo_dir / "delivery.toml", cfg)
+    records, _ = read_manifest(delivery.manifest_path)
+    by_key = {(r.project, r.rel): r for r in records}
+    results: list[Result] = []
+    for c in DELIVER_CASES:
+        r = by_key.get((c.project, c.rel))
+        if r is None:
+            results.append(Result(c.id, c.setup, c.expectation(), "管理表に載らない", False))
+            continue
+        name = c.rel.rsplit("/", 1)[-1]
+        at_dest = any((delivery.dest_root / c.project).rglob(name)) if delivery.dest_root else False
+        backup = Path(r.backup) if r.backup else None
+        got_backup = backup.read_bytes() if backup and backup.is_file() else None
+        ok = (r.st_copy == c.copy and at_dest == c.at_dest and got_backup == c.backup
+              and (r.st_copy != "済" or bool(r.copy_hash)))
+        actual = [f"No.{r.no} 納品コピー={r.st_copy}", "納品先にあり" if at_dest else "納品先になし",
+                  "退避あり" + ("（上書き前の内容）" if got_backup == c.backup else "（内容が違う）")
+                  if got_backup is not None else "退避なし"]
+        if r.st_copy == "済":
+            actual.append("ハッシュあり" if r.copy_hash else "ハッシュなし")
+        results.append(Result(c.id, c.setup, c.expectation(), "、".join(actual), ok))
+    copied = sum(1 for r in records if r.st_copy == "済")
+    results.append(Result("T-2", "納品コピーが済の行", f"{EXPECTED_COPIED} 件", f"{copied} 件", copied == EXPECTED_COPIED))
+    results += _verify_issues(_read_issues(delivery.manifest_path))
+    return results
 
 
 def verify(demo_dir: Path) -> list[Result]:
@@ -226,16 +312,7 @@ def verify(demo_dir: Path) -> list[Result]:
                 problems.append(cat)
         results.append(Result(c.id, c.setup, c.expectation(), "、".join(actual), not problems))
 
-    # 警告シート全体: 期待どおりのものが出ていて、余計なものが出ていないか
-    remaining = list(issues)
-    for n, (lv, proj, cat, text) in enumerate(EXPECTED_ISSUES, start=1):
-        hit = next((i for i in remaining if i[0] == lv and i[1] == proj and i[2] == cat and text in i[3]), None)
-        if hit:
-            remaining.remove(hit)
-        results.append(Result(f"W-{n}", "警告シート", f"{lv} {proj}「{cat}」（{text}）",
-                              "あり" if hit else "なし", hit is not None))
-    for i in remaining:
-        results.append(Result("W-余分", "警告シート", "（出ないはず）", f"{i[0]} {i[1]}「{i[2]}」{i[3]}", False))
+    results += _verify_issues(issues)
 
     counts = {"全行": len(records)}
     for t in ("自動", "手動", "除外", "要確認"):
@@ -271,6 +348,16 @@ def to_markdown(results: list[Result] | None = None) -> str:
         lines.append(f"| W-{n} | {lv} | {proj} | {cat} | {text} |")
     lines += ["", "## 件数", "", "| 全行 | 自動 | 手動 | 除外 | 要確認 |", "|---|---|---|---|---|",
               "| " + " | ".join(str(EXPECTED_TOTALS[k]) for k in ("全行", "自動", "手動", "除外", "要確認")) + " |"]
+    lines += ["", "## 納品コピーのあとの期待結果", "",
+              "collect のあと `deliver --mode check`（内容の違うファイルがあるので止まる）→ `deliver --mode overwrite` を実行し、"
+              "`python -m tests.verify_demo --stage deliver` で照合する。",
+              "納品先 `demo/dest/` には、collect の前から次のファイルを置いてある: 原本と同じ内容（D-1）、"
+              "原本と内容が違う（D-2）、管理表にないファイル（W の「管理表にないファイル」）、Excel の一時ファイル（無視される）。",
+              "警告シートは collect のあとと同じになる。",
+              "", "| ID | 案件 | ファイル（相対パス） | 仕込んだ内容 | 期待結果 |", "|---|---|---|---|---|"]
+    for c in DELIVER_CASES:
+        lines.append(f"| {c.id} | {c.project} | `{c.rel}` | {c.setup} | {c.expectation()} |")
+    lines += ["", f"納品コピーが済の行: {EXPECTED_COPIED} 件"]
     if results is not None:
         ok = sum(r.ok for r in results)
         lines += ["", f"## 照合結果（{ok}/{len(results)} 件 一致）", "", "| ID | 判定 | 実際の出力 |", "|---|---|---|"]
@@ -283,6 +370,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="デモデータの正誤表と実際の出力を突き合わせる")
     ap.add_argument("demo", nargs="?", default="demo", help="デモフォルダ（既定: demo）")
     ap.add_argument("--markdown", help="正誤表を Markdown で書き出すパス（照合結果は含めない）")
+    ap.add_argument("--stage", choices=("collect", "deliver"), default="collect",
+                    help="collect: collect のあとを照合（既定）/ deliver: deliver（overwrite）のあとを照合")
     args = ap.parse_args(argv)
     demo = Path(args.demo).resolve()
 
@@ -292,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"正誤表を書き出しました: {args.markdown}")
         return 0
 
-    results = verify(demo)
+    results = verify_deliver(demo) if args.stage == "deliver" else verify(demo)
     width = max(len(r.id) for r in results)
     for r in results:
         print(f"{'○' if r.ok else '×'} {r.id:<{width}}  {r.setup}")

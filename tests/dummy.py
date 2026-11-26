@@ -28,9 +28,9 @@ REVIEWS = {"030": [("社内", 1), ("社外", 1)], "040": [("社内", 1), ("社�
            "090": [("社内", 1), ("社外", 1)]}
 
 
-def touch(p: Path) -> Path:
+def touch(p: Path, data: bytes = b"dummy") -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(b"dummy")
+    p.write_bytes(data)
     return p
 
 
@@ -148,9 +148,16 @@ def make_demo(out: Path) -> Path:
     write_review_record(c / "060.UD作成" / "成果物" / "内部Rv" / rv_name("060", "社内", 1, "C"),
                         with_approval=False)                                                  # 承認欄なし
 
+    # 納品先: 前回の作業が一部残っている状態にする
+    d = out / "dest" / "案件A"
+    touch(d / "030.調査" / "調査検討書_A.xlsx")                                       # 原本と同じ内容（コピー済みとみなす）
+    touch(d / "040.設計" / "成果物" / cl_name("040", "社外", 1, "A"), b"old version")  # 原本と内容が違う（check で止まる）
+    touch(d / "040.設計" / "古い資料.xlsx")                                           # 管理表にないファイル
+    touch(d / "030.調査" / "~$調査検討書_A.xlsx")                                      # Excel の一時ファイル（無視）
+
     shutil.copy(ROOT / "config.example.toml", out / "config.toml")
     (out / "delivery.toml").write_text(
-        '[delivery]\nname = "デモ納品"\nwork_dir = "work"\n\n'
+        '[delivery]\nname = "デモ納品"\nwork_dir = "work"\ndest_root = "dest"\n\n'
         '[[projects]]\nname = "案件A"\nroot = "src/案件A"\n\n'
         '[[projects]]\nname = "案件B"\nroot = "src/案件B"\nprocesses = ["030", "040"]\n\n'
         '[[projects]]\nname = "案件C"\nroot = "src/案件C"\nprocesses = ["060", "070", "080", "090"]\n',
