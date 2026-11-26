@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+~$*
+.claude/settings.local.json
+
+# 実運用の設定・作業フォルダ（社内情報を含むためコミットしない）
+config.toml
+delivery*.toml
+!delivery.example.toml
+work/
+_backup/
+
+# 動作確認用に生成したダミー
+demo/

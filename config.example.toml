@@ -1,0 +1,135 @@
+# 納品サポートツール 共通設定（ルールブック）
+# このファイルを config.toml という名前でコピーして使う。
+#
+# 命名パターンは Python の正規表現。
+# - 判定の前にファイル名を NFKC 正規化するので、全角の（）や全角数字は半角として扱われる。
+#   パターンは半角の () で書けばよい（正規表現では \( \) と書く）。
+# - 1つの種別に複数のパターンを並べられる（命名規則の移行期間用）。上から順に試す。
+
+[layout]
+# 工程フォルダ名のパターン。先頭3桁が工程番号になる
+process_dir_pattern = '^(\d{3})\.'
+# この名前のフォルダの下はすべて対象外（大文字小文字は区別しない）
+excluded_dirs = ["back"]
+# レビュー記録表・チェックリストを置くフォルダ
+deliverable_dir = "成果物"
+# 成果物の下のフォルダ名 → 社内外
+review_dirs = { "内部Rv" = "社内", "外部Rv" = "社外" }
+# レビューフォルダの下の日付フォルダ（パターン2）
+date_dir_pattern = '^\d{8}$'
+# 一覧に出さないファイル（Excel の一時ファイルなど）
+ignore_patterns = ['^~\$', '^\.', '^Thumbs\.db$', '^desktop\.ini$']
+
+[stamp]
+# 押印者の既定値（Step 4 で使用。管理表で行ごとに変更できる）
+default_stamper = ""
+company_name = ""
+
+# ---- 工程の対応表 ----
+# code: 工程番号 / folder: フォルダ名 / cl_name: チェックリスト上の工程名 / rv_name: レビュー記録表上の工程名
+[[processes]]
+code = "030"
+folder = "030.調査"
+cl_name = "調査"
+rv_name = "調査"
+
+[[processes]]
+code = "040"
+folder = "040.設計"
+cl_name = "設計"
+rv_name = "設計"
+
+[[processes]]
+code = "050"
+folder = "050.製造"
+cl_name = "CD"
+rv_name = "CD"
+
+[[processes]]
+code = "060"
+folder = "060.UD作成"
+cl_name = "UD仕様書"
+rv_name = "UD作成"
+
+[[processes]]
+code = "070"
+folder = "070.UD消化"
+cl_name = "UD結果"
+rv_name = "UD消化"
+
+[[processes]]
+code = "080"
+folder = "080.SD作成"
+cl_name = "SD仕様書"
+rv_name = "SD作成"
+
+[[processes]]
+code = "090"
+folder = "090.SD消化"
+cl_name = "試験結果報告書"
+rv_name = "試験結果報告書"
+
+# ---- ドキュメント（工程フォルダ直下） ----
+# self_stamp: 自社捺印が必要か / partner_stamp: 取引先捺印が必要か
+[[documents]]
+process = "030"
+name = "調査検討書"
+patterns = ['^(調査検討書|調査)_.+\.xlsx$']
+self_stamp = false
+partner_stamp = false
+
+[[documents]]
+process = "040"
+name = "機能設計書"
+patterns = ['^機能設計書_.+\.xlsx$']
+self_stamp = true
+partner_stamp = true
+
+[[documents]]
+process = "060"
+name = "単体試験仕様書"
+patterns = ['^単体試験仕様書_.+\.xlsx$']
+self_stamp = true
+partner_stamp = false
+
+[[documents]]
+process = "070"
+name = "単体試験成績書"
+patterns = ['^単体試験成績書_.+\.xlsx$']
+self_stamp = true
+partner_stamp = false
+
+[[documents]]
+process = "080"
+name = "結合試験仕様書"
+patterns = ['^結合試験仕様書_.+\.xlsx$']
+self_stamp = true
+partner_stamp = true
+
+[[documents]]
+process = "090"
+name = "結合試験成績書"
+patterns = ['^結合試験成績書_.+\.xlsx$']
+self_stamp = true
+partner_stamp = true
+
+[[documents]]
+process = "090"
+name = "試験結果報告書"
+patterns = ['^試験結果報告書_.+\.xlsx$']
+self_stamp = true
+partner_stamp = true
+
+# ---- レビュー記録表（成果物/内部Rv・外部Rv の下） ----
+# 必須の名前付きグループ: side（社内/社外）, round（回数の数字）, pname（工程名）
+[review_record]
+patterns = ['^レビュー記録表\((?P<side>社内|社外)\)\((?P<round>\d+)回目\)_(?P<pname>[^_]+)_.*\.xlsx$']
+self_stamp = true
+partner_stamp_sides = ["社外"]
+
+# ---- レビューチェックリスト（成果物/内部Rv・外部Rv の下） ----
+# 必須の名前付きグループ: code（工程番号）, pname（工程名）, side, round
+[checklist]
+patterns = ['^(?P<code>\d{3})_レビューチェックリスト_(?P<pname>[^_()]+)\((?P<side>社内|社外)\)\((?P<round>\d+)回目\)_.*\.xlsx$']
+self_stamp = false
+partner_stamp_sides = []
