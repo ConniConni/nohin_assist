@@ -126,6 +126,7 @@ def make_demo(out: Path) -> Path:
     touch(a / "040.設計" / "作業用" / "機能設計書_A_作業中.xlsx")                        # 直下以外のフォルダ（載せない）
     touch(a / "040.設計" / "成果物" / "外部Rv" / "機能設計書_A.xlsx")                    # レビューフォルダのドキュメントの写し（載せない）
     write_review_record(a / "040.設計" / "成果物" / "内部Rv" / "過去分" / rv_name("040", "社内", 1, "A_old"))  # 日付でないフォルダ（載せない）
+    touch(a / "040.設計" / "機能設計書_A_画面2.xlsx")                                   # 複数あってよい（allow_multiple）
 
     # 案件A: レビュー記録表の中身
     rv = lambda code, side, n: a / FOLDERS[code] / "成果物" / ("内部Rv" if side == "社内" else "外部Rv") / rv_name(code, side, n, "A")  # noqa: E731
@@ -154,7 +155,7 @@ def make_demo(out: Path) -> Path:
     shutil.copy(ROOT / "config.example.toml", out / "config.toml")
     (out / "delivery.toml").write_text(
         '[delivery]\nname = "デモ納品"\nwork_dir = "work"\n\n'
-        '[[projects]]\nname = "案件A"\nroot = "src/案件A"\n\n'
+        '[[projects]]\nname = "案件A"\nroot = "src/案件A"\nallow_multiple = ["機能設計書"]\n\n'
         '[[projects]]\nname = "案件B"\nroot = "src/案件B"\nprocesses = ["030", "040"]\n\n'
         '[[projects]]\nname = "案件C"\nroot = "src/案件C"\nprocesses = ["060", "070", "080", "090"]\n',
         encoding="utf-8")

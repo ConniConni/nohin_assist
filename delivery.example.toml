@@ -12,6 +12,7 @@ work_dir = 'work\2026-12'
 name = "案件A"                       # 納品先・Teams でのフォルダ名
 root = 'C:\work\案件A'
 # processes = ["030", "040"]         # 対象工程を絞る場合のみ指定（省略時はフォルダがある工程すべて）
+# allow_multiple = ["機能設計書"]    # 同じ工程に複数あってよいドキュメント（config.toml の documents の name）。重複の警告を出さない
 
 [[projects]]
 name = "案件B"

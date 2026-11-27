@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 
 from nohin import progress
 from nohin.cli import main
-from nohin.config import load_config, load_delivery
+from nohin.config import ConfigError, load_config, load_delivery
 from nohin.manifest import ManifestError, ensure_not_open, read_manifest
 from nohin.model import TARGET_CHECK, TARGET_EXCLUDE
 from nohin.scan import scan_project
@@ -67,6 +67,18 @@ class FlowTest(unittest.TestCase):
         code, out = run("collect", "-d", self.dfile, "--check-names")
         self.assertNotIn("作業用", out)
         self.assertNotIn("成果物/外部Rv/機能設計書_A.xlsx", out)
+
+    def test_allow_multiple_per_project(self):
+        # 案件A は allow_multiple で機能設計書が複数あってよい。指定を外すと重複として出る
+        self.collect()
+        dup = [r for r in self.issues() if r[2] == "ドキュメント重複"]
+        self.assertEqual([(r[1], "結合試験仕様書" in r[3]) for r in dup], [("案件C", True)])
+
+        Path(self.dfile).write_text(Path(self.dfile).read_text(encoding="utf-8")
+                                    .replace('allow_multiple = ["機能設計書"]\n', ""), encoding="utf-8")
+        self.collect("--new")
+        dup = {(r[1], r[3].split("に")[1].split("が")[0]) for r in self.issues() if r[2] == "ドキュメント重複"}
+        self.assertEqual(dup, {("案件A", "機能設計書"), ("案件C", "結合試験仕様書")})
 
     def test_collect_detects_expected_issues(self):
         self.collect()
@@ -246,6 +258,19 @@ class ConfigErrorTest(unittest.TestCase):
             code, out = run("collect", "-d", str(p), "-c", str(Path(d) / "none.toml"))
             self.assertEqual(code, 2)
             self.assertIn("見つかりません", out)
+
+    def test_allow_multiple_unknown_name(self):
+        cfg = load_config(Path(__file__).resolve().parent.parent / "config.example.toml")
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "delivery.toml"
+            p.write_text('[delivery]\nname="x"\nwork_dir="w"\n[[projects]]\nname="A"\nroot="a"\n'
+                         'allow_multiple = ["基本設計書"]\n', encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "allow_multiple"):
+                load_delivery(p, cfg)
+            p.write_text('[delivery]\nname="x"\nwork_dir="w"\n[[projects]]\nname="A"\nroot="a"\n'
+                         'allow_multiple = "機能設計書"\n', encoding="utf-8")
+            with self.assertRaisesRegex(ConfigError, "配列"):
+                load_delivery(p, cfg)
 
 
 if __name__ == "__main__":

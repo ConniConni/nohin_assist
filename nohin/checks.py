@@ -24,7 +24,8 @@ def check_all(records: list[Record], cfg: Config, delivery: Delivery, *, check_f
         if r.target == TARGET_EXCLUDE and r.kind == KIND_OTHER and not is_suspicious_other(r):
             issues.append(Issue(LEVEL_INFO, r.project, "規則外（対象外）",
                                 f"命名規則外のため対象外にしました: {r.rel}", (r.id,)))
-    issues += _check_duplicates(active)
+    allow_multiple = {(p.name, d) for p in delivery.projects for d in p.allow_multiple}
+    issues += _check_duplicates(active, allow_multiple)
     issues += _check_pairs_and_rounds(active)
     issues += _check_missing(active, cfg, delivery)
     issues += _check_values_and_order(records)
@@ -71,12 +72,13 @@ def _check_each(records: list[Record], cfg: Config, check_files: bool) -> list[I
     return out
 
 
-def _check_duplicates(records: list[Record]) -> list[Issue]:
+def _check_duplicates(records: list[Record], allow_multiple: set[tuple[str, str]]) -> list[Issue]:
+    """allow_multiple: (案件名, ドキュメント名)。案件ごとに、複数あってよいと指定されたドキュメント。"""
     out = []
     docs = defaultdict(list)
     dests = defaultdict(list)
     for r in records:
-        if r.kind == KIND_DOC:
+        if r.kind == KIND_DOC and (r.project, r.doc_name) not in allow_multiple:
             docs[(r.project, r.process, r.doc_name)].append(r)
         if r.dest_rel:
             dests[r.dest_rel].append(r)

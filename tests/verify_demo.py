@@ -81,6 +81,9 @@ CASES: list[Case] = [
          "レビューフォルダにドキュメントの写しを置いた（重複にも数えない）", present=False),
     Case("A-10", "仕込み", "案件A", "040.設計/成果物/内部Rv/過去分/レビュー記録表(社内)(1回目)_設計_A_old.xlsx",
          "レビューフォルダの下の日付でないフォルダにレビュー記録表を置いた", present=False),
+    Case("A-11", "仕込み", "案件A", "040.設計/機能設計書_A_画面2.xlsx",
+         "機能設計書を2つ置いた（案件A は allow_multiple で複数可）",
+         target="自動", statuses=NEED_ALL, dest_rel="案件A/040.設計/機能設計書_A_画面2.xlsx"),
     Case("B-1", "仕込み", "案件B", "040.設計/成果物/外部Rv/20261120/レビュー記録表(社外)(3回目)_設計_B.xlsx",
          "社外レビューを1回目・3回目だけにした（2回目が抜け）",
          target="自動", statuses=RV_EXT, issues=[("警告", "回数の抜け")]),
@@ -165,7 +168,7 @@ EXPECTED_ISSUES: list[tuple[str, str, str, str]] = [
 ]
 
 # 件数: (全行, 自動, 手動, 除外, 要確認)
-EXPECTED_TOTALS = {"全行": 63, "自動": 60, "手動": 0, "除外": 1, "要確認": 2}
+EXPECTED_TOTALS = {"全行": 64, "自動": 61, "手動": 0, "除外": 1, "要確認": 2}
 
 
 @dataclass

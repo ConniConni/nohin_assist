@@ -88,6 +88,7 @@ class Project:
     name: str
     root: Path
     processes: tuple[str, ...] = ()  # 空なら「フォルダがある工程すべて」
+    allow_multiple: tuple[str, ...] = ()  # 同じ工程に複数あってよいドキュメント名（重複チェックしない）
 
 
 @dataclass(frozen=True)
@@ -251,7 +252,16 @@ def load_delivery(path: str | Path, cfg: Config | None = None) -> Delivery:
             unknown = [c for c in procs if c not in cfg.processes]
             if unknown:
                 raise ConfigError(f"{where}.processes に未定義の工程番号があります: {unknown}")
-        projects.append(Project(name=pname, root=resolve(_require(p, "root", where)), processes=procs))
+        multi = p.get("allow_multiple", [])
+        if not isinstance(multi, list) or not all(isinstance(s, str) for s in multi):
+            raise ConfigError(f"{where}.allow_multiple はドキュメント名の配列で書いてください（例: [\"機能設計書\"]）")
+        if cfg is not None:
+            doc_names = {d.name for d in cfg.documents}
+            unknown = [s for s in multi if s not in doc_names]
+            if unknown:
+                raise ConfigError(f"{where}.allow_multiple に config.toml の documents にない名前があります: {unknown}")
+        projects.append(Project(name=pname, root=resolve(_require(p, "root", where)), processes=procs,
+                                allow_multiple=tuple(multi)))
     if not projects:
         raise ConfigError("delivery.toml に [[projects]] が1つもありません")
     return Delivery(path=path, name=name, work_dir=work_dir, projects=tuple(projects))
