@@ -109,6 +109,18 @@ def is_suspicious_other(rec: Record) -> bool:
     return loc.kind in ("doc", "review") and rec.filename.lower().endswith(EXCEL_EXTS)
 
 
+def in_scope(rec: Record) -> bool:
+    """管理表に載せるか。ドキュメントは工程フォルダ直下にあるものだけを載せる。
+
+    レビューフォルダには、レビューに使ったドキュメントの写しが同じ名前で置かれることがあるため、
+    そこにあるドキュメント名のファイルは載せない（重複にも数えない）。
+    """
+    loc: Location = rec.extra["location"]
+    if loc.kind == "doc":
+        return True
+    return loc.kind == "review" and rec.kind != KIND_DOC
+
+
 def expected_location(kind: str) -> str | None:
     return {KIND_DOC: "doc", KIND_RV: "review", KIND_CL: "review"}.get(kind)
 

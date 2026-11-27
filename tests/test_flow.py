@@ -54,6 +54,20 @@ class FlowTest(unittest.TestCase):
         files_b, _ = scan_project(self.delivery.projects[1], self.cfg)
         self.assertTrue(any("/20261101/" in f.rel for f in files_b))  # パターン2も拾う
 
+    def test_collect_only_deliverable_locations(self):
+        # 工程フォルダ直下と 成果物/内部Rv・外部Rv（日付フォルダ）だけを載せる。レビューフォルダのドキュメントは載せない
+        self.collect()
+        records, _ = read_manifest(self.mpath)
+        rels = {r.rel for r in records if r.project == "案件A"}
+        self.assertNotIn("040.設計/作業用/機能設計書_A_作業中.xlsx", rels)
+        self.assertNotIn("040.設計/成果物/外部Rv/機能設計書_A.xlsx", rels)
+        self.assertFalse(any("/過去分/" in r for r in rels))
+        self.assertIn("040.設計/機能設計書_A.xlsx", rels)
+        self.assertIn("040.設計/成果物/外部Rv/レビュー記録表(社外)(1回目)_設計_A.xlsx", rels)
+        code, out = run("collect", "-d", self.dfile, "--check-names")
+        self.assertNotIn("作業用", out)
+        self.assertNotIn("成果物/外部Rv/機能設計書_A.xlsx", out)
+
     def test_collect_detects_expected_issues(self):
         self.collect()
         cats = {(r[1], r[2]) for r in self.issues()}

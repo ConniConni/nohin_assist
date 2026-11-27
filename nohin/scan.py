@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,14 +62,35 @@ def scan_project(project: Project, cfg: Config) -> tuple[list[ScannedFile], list
 
 
 def _walk_process(project: Project, proc_dir: Path, cfg: Config) -> list[ScannedFile]:
-    out = []
-    for dirpath, dirnames, filenames in os.walk(proc_dir):
-        dirnames[:] = sorted(d for d in dirnames
-                             if d.lower() not in cfg.layout.excluded_dirs and not _ignored(d, cfg))
-        for fn in sorted(filenames):
-            if _ignored(fn, cfg):
+    """納品物の置き場所だけを見る: 工程フォルダ直下と、成果物/内部Rv・外部Rv（その下の日付フォルダを含む）。
+
+    それ以外のフォルダ（作業用フォルダや back/ など）の下は管理表に載せない。
+    """
+    lay = cfg.layout
+    out = _files_in(project, proc_dir, cfg)
+    for deliv in _subdirs(proc_dir, cfg):
+        if deliv.name != lay.deliverable_dir:
+            continue
+        for rv_dir in _subdirs(deliv, cfg):
+            if rv_dir.name not in lay.review_dirs:
                 continue
-            path = Path(dirpath) / fn
-            rel = path.relative_to(project.root).as_posix()
-            out.append(ScannedFile(project=project, path=path, rel=rel))
+            out += _files_in(project, rv_dir, cfg)
+            for date_dir in _subdirs(rv_dir, cfg):
+                if lay.date_dir_pattern.search(date_dir.name):
+                    out += _files_in(project, date_dir, cfg)
+    return out
+
+
+def _subdirs(d: Path, cfg: Config) -> list[Path]:
+    return sorted((p for p in d.iterdir()
+                   if p.is_dir() and p.name.lower() not in cfg.layout.excluded_dirs and not _ignored(p.name, cfg)),
+                  key=lambda p: p.name)
+
+
+def _files_in(project: Project, d: Path, cfg: Config) -> list[ScannedFile]:
+    out = []
+    for path in sorted((p for p in d.iterdir() if p.is_file()), key=lambda p: p.name):
+        if _ignored(path.name, cfg):
+            continue
+        out.append(ScannedFile(project=project, path=path, rel=path.relative_to(project.root).as_posix()))
     return out

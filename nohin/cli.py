@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 
 from . import __version__
 from .checks import check_all, sort_issues
-from .classify import build_record, enrich
+from .classify import build_record, enrich, in_scope
 from .config import ConfigError, find_config, find_config_for_inspect, load_config, load_delivery
 from .manifest import ManifestError, backup_manifest, ensure_not_open, read_manifest, save_manifest
 from .model import KIND_CL, KIND_DOC, KIND_OTHER, KIND_RV, LEVEL_INFO, Issue, Record
@@ -61,7 +61,8 @@ def cmd_collect(args) -> int:
     for proj in delivery.projects:
         files, iss = scan_project(proj, cfg)
         scan_issues += iss
-        scanned_records += [build_record(proj.name, f.rel, str(f.path), cfg, now) for f in files]
+        built = (build_record(proj.name, f.rel, str(f.path), cfg, now) for f in files)
+        scanned_records += [r for r in built if in_scope(r)]
     order = {p.name: i for i, p in enumerate(delivery.projects)}
     scanned_records.sort(key=_sort_key(order))
 
